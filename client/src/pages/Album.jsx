@@ -8,7 +8,13 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { animate, motion } from "framer-motion";
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import {
+  ArrowLeft,
+  ChevronLeft,
+  ChevronRight,
+  Image as ImageIcon,
+  Plus,
+} from "lucide-react";
 import { api } from "../lib/api.js";
 import { prefersReducedMotion, useElementSize } from "../lib/hooks.js";
 import { navigate } from "../lib/router.js";
@@ -20,20 +26,22 @@ import PhotoViewer from "../components/PhotoViewer.jsx";
 const COLS = 2,
   ROWS = 3,
   PER = COLS * ROWS,
-  GAP = 12,
-  PAD = 18,
-  COVER = 14,
-  THICK = 10;
+  GAP = 18,
+  PAD = 26,
+  RATIO = 0.85, // rộng/cao của mỗi ô (trước là 0.75 = 3:4) -> cuốn album bè ngang hơn,
+  COVER = 18,
+  THICK = 14;
 const tilt = (slot) => (((slot * 37) % 7) - 3) * 0.25; // nghiêng cực nhẹ từng tấm, ổn định theo vị trí
 const FLIP_MS = 0.75;
 
 /* Nội dung một ô (luôn khung 3:4):
-   3:4 -> phủ kín · 1:1 -> giữ nguyên, nằm giữa ô · 4:3 -> xoay 90° để phủ kín (mở ra sẽ xoay về 4:3 như gốc). */
+   3:4 -> phủ kín · 1:1 -> giữ nguyên, nằm giữa ô · 4:3 -> xoay 90° để phủ kín (mở ra sẽ xoay về 4:3 như gốc).
+   Khung Polaroid: viền 8px hai bên + trên, viền dưới dày 24px (khớp với padding của .card trong CSS). */
 function CardBody({ p, cell }) {
   const sizes = `${Math.round(cell.h)}px`;
   if (p.aspect === "4:3") {
     return (
-      <span className="rot" style={{ width: cell.h - 12, height: cell.w - 12 }}>
+      <span className="rot" style={{ width: cell.h - 38, height: cell.w - 22 }}>
         <PhotoImg photo={p} sizes={sizes} className="ph fill" />
       </span>
     );
@@ -219,8 +227,8 @@ export default function Album({ userId, search }) {
     (areaH - 2 * COVER - THICK - 2 * PAD - (ROWS - 1) * GAP - 16) / ROWS;
   const cellWmax =
     (size.w - sideRoom - 2 * COVER - 30 - pps * padPage) / (pps * COLS);
-  const cw = Math.max(40, Math.floor(Math.min(cellH0 * 0.75, cellWmax)));
-  const cell = { w: cw, h: Math.round((cw * 4) / 3) };
+  const cw = Math.max(40, Math.floor(Math.min(cellH0 * RATIO, cellWmax)));
+  const cell = { w: cw, h: Math.round(cw / RATIO) };
   const pageW = padPage + COLS * cell.w,
     pageH = 2 * PAD + (ROWS - 1) * GAP + ROWS * cell.h;
   const ready = size.w > 0 && size.h > 160;
@@ -498,6 +506,11 @@ export default function Album({ userId, search }) {
                     damping: 15,
                     delay: fresh.has(p.id) ? 0.4 : 0,
                   }}
+                  whileHover={
+                    drag || fresh.has(p.id)
+                      ? undefined
+                      : { scale: 1.07, y: -5, rotate: 0 }
+                  }
                   onPointerDown={onDown(p)}
                   onClick={() => {
                     if (!suppress.current) setOpen(p.id);
@@ -522,9 +535,14 @@ export default function Album({ userId, search }) {
                 onClick={() => navigate("/")}
                 aria-label="Thêm ảnh mới"
               >
-                <Plus size={22} />
+                <Plus size={26} strokeWidth={2.4} />
+                <span>Thêm ảnh</span>
               </button>
-            ) : null}
+            ) : (
+              <span className="slot-empty" aria-hidden="true">
+                <ImageIcon size={26} />
+              </span>
+            )}
             <i className="gloss" aria-hidden="true" />
           </div>
         );
@@ -547,8 +565,8 @@ export default function Album({ userId, search }) {
   }
   const spreadW = pageW * pps;
   const frac = pageCount > pps ? first / (pageCount - pps) : 0; // đã lật bao nhiêu -> chồng giấy trái/phải dày mỏng
-  const tl = 3 + frac * 12,
-    tr = 3 + (1 - frac) * 12;
+  const tl = 4 + frac * 14,
+    tr = 4 + (1 - frac) * 14;
 
   return (
     <div className="album" ref={areaRef}>
@@ -593,7 +611,7 @@ export default function Album({ userId, search }) {
               <ChevronLeft size={22} />
             </button>
 
-            <div className="book-tilt">
+            <div className="book-front">
               <div
                 className="cover"
                 style={{ padding: COVER, paddingBottom: COVER + THICK }}
@@ -645,10 +663,28 @@ export default function Album({ userId, search }) {
           </div>
 
           <div className="album-foot">
-            <span className="pixel">
-              trang {first + 1}
-              {pps === 2 ? `–${first + 2}` : ""} / {pageCount}
-            </span>
+            <div className="foot-pill">
+              <button
+                className="foot-arrow"
+                onClick={() => go(first - pps)}
+                disabled={first === 0 || !!flip}
+                aria-label="Trang trước"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="foot-text">
+                Trang {first + 1}
+                {pps === 2 ? `–${first + 2}` : ""} / {pageCount}
+              </span>
+              <button
+                className="foot-arrow"
+                onClick={() => go(first + pps)}
+                disabled={first + pps >= pageCount || !!flip}
+                aria-label="Trang sau"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
             <div className="dots">
               {Array.from({ length: pageCount / pps }, (_, i) => (
                 <button
