@@ -157,6 +157,14 @@ Kiểm tra nhanh kho còn sống không: `GET /api/health` (không cần đăng 
 
 ### Sao lưu và khôi phục
 
+**Cách đơn giản nhất: để server tự sao lưu.** Thêm một dòng vào `server/.env` rồi khởi động lại server:
+
+```ini
+BACKUP_DIR=D:/khoanh-khac-backup
+```
+
+Server sẽ sao lưu ngay khi bản gần nhất đã cũ hơn 24 giờ (đổi bằng `BACKUP_INTERVAL_HOURS`), rồi lặp lại mỗi 24 giờ khi còn chạy. Khởi động lại server nhiều lần không sinh sao lưu thừa. Lỗi sao lưu chỉ ghi log `[backup] lỗi: ...`, không làm sập server. Lưu ý server phải **đang chạy** thì mới sao lưu: nếu bạn chỉ mở vài giờ mỗi ngày thì vẫn được, vì lần mở sau nó sẽ bù. Chạy tay (bên dưới) khi muốn sao lưu ngay, ví dụ trước khi sửa lớn.
+
 ```bash
 npm run backup -- D:/khoanh-khac-backup      # chạy được khi server đang chạy; bỏ đường dẫn thì dùng BACKUP_DIR hoặc ./server/backups
 ```
@@ -164,7 +172,7 @@ npm run backup -- D:/khoanh-khac-backup      # chạy được khi server đang 
 - **Nên đặt thư mục sao lưu ở ổ đĩa khác** (hoặc ổ ngoài, thư mục đồng bộ cloud). Sao lưu cùng ổ với `C:/weed-data` không cứu được khi hỏng ổ.
 - Mỗi lần chạy: lưu một ảnh chụp SQLite `db/gallery-<thời gian>.db` (nhất quán kể cả khi server đang ghi; giữ 14 bản mới nhất, đổi bằng `BACKUP_KEEP_DB`) và chép các file ảnh **còn chưa có** vào `files/` (đọc qua API của kho nên không chép giữa chừng thư mục của weed). Chạy lại nhiều lần rất nhanh vì chỉ chép file mới.
 - `files/` **không bao giờ xóa** file: ảnh lỡ bị xóa khỏi kho vẫn còn ở đây. Đổi lại thư mục này chỉ lớn lên, cần tự dọn khi cần.
-- Chạy mỗi ngày bằng **Task Scheduler** (Windows): tạo tác vụ chạy `npm run backup -- D:/khoanh-khac-backup` với thư mục bắt đầu là thư mục dự án.
+- Muốn sao lưu cả khi server không chạy thì mới cần **Task Scheduler** (Windows): tạo tác vụ chạy `npm run backup -- D:/khoanh-khac-backup` với thư mục bắt đầu là thư mục dự án. Còn không thì dùng `BACKUP_DIR` ở trên là đủ.
 - Backup dùng khóa của tài khoản `app` trong `server/.env` (chỉ cần quyền đọc/liệt kê).
 
 **Khôi phục** (dừng server trước, bật SeaweedFS và đảm bảo bucket đã có):

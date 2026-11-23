@@ -555,19 +555,21 @@ test("sao lưu rồi khôi phục: DB + ảnh về đúng, chạy lại không c
   const dir = path.join(tmp, "bk");
   const mute = () => {};
   const r1 = await backupAll({ db, storage, dir, log: mute });
-  const keys = await storage.list("");
+  const { isValidKey } = await import("../src/storage/keys.js");
+  const all = await storage.list("");
+  const keys = all.filter(isValidKey); // file lạ (không phải key của app) bị bỏ qua khi sao lưu
   assert.ok(
-    keys.length > 0 && r1.files === keys.length && r1.copied === keys.length,
+    keys.length > 0 && r1.files === all.length && r1.copied === keys.length,
   );
   const r2 = await backupAll({ db, storage, dir, log: mute });
   assert.equal(r2.copied, 0, "lần 2 không chép lại file đã có");
   // Mất hết kho -> khôi phục lại
   for (const k of keys) await storage.delete(k);
-  assert.equal((await storage.list("")).length, 0);
+  assert.equal((await storage.list("")).filter(isValidKey).length, 0);
   const dbCopy = path.join(tmp, "restored.sqlite");
   const rr = await restoreAll({ storage, dir, dbPath: dbCopy, log: mute });
   assert.equal(rr.uploaded, keys.length);
-  assert.deepEqual(await storage.list(""), keys);
+  assert.deepEqual((await storage.list("")).filter(isValidKey), keys);
   const Database = (await import("better-sqlite3")).default;
   const rdb = new Database(dbCopy, { readonly: true });
   assert.equal(
@@ -580,4 +582,44 @@ test("sao lưu rồi khôi phục: DB + ảnh về đúng, chạy lại không c
     restoreAll({ storage, dir, dbPath: dbCopy, log: mute }),
     /--force/,
   );
+});
+
+test("tự sao lưu: chạy theo lịch, bỏ qua khi bản gần nhất còn mới", async () => {
+  const { startAutoBackup } = await import("../src/backup.js");
+  const dir = path.join(tmp, "auto");
+  const mute = () => {};
+  const count = () => {
+    try {
+      return fs.readdirSync(path.join(dir, "db")).length;
+    } catch {
+      return 0;
+    }
+  };
+  const stop = startAutoBackup({
+    db,
+    storage,
+    dir,
+    intervalMs: 10_000,
+    minDelayMs: 20,
+    log: mute,
+  });
+  await new Promise((r) => setTimeout(r, 1500));
+  stop();
+  assert.equal(
+    count(),
+    1,
+    "lần đầu: chưa có bản nào thì sao lưu ngay (sau độ trễ tối thiểu)",
+  );
+  // Bản vừa tạo còn mới (< 10 giây) -> khởi động lại sẽ không sao lưu thêm ngay
+  const stop2 = startAutoBackup({
+    db,
+    storage,
+    dir,
+    intervalMs: 3_600_000,
+    minDelayMs: 20,
+    log: mute,
+  });
+  await new Promise((r) => setTimeout(r, 300));
+  stop2();
+  assert.equal(count(), 1, "bản còn mới thì không sao lưu lại");
 });
