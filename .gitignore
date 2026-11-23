@@ -6,3 +6,4 @@ weed.exe
 server/.env
 .env
 *.log
+seaweed/s3.json
