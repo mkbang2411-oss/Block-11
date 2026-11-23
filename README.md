@@ -23,7 +23,7 @@
 ```
 client/   React + Vite (giao diện)         → http://localhost:5173 khi dev
 server/   Express + sharp + SQLite (API)   → http://localhost:4000 (API + /media)
-seaweed/  s3.json: khóa mẫu cho SeaweedFS (chỉ dùng dev)
+seaweed/  s3.example.json: khóa MẪU (có trong git) · s3.json: khóa THẬT của bạn (không commit, xem .gitignore)
 ```
 
 ## Chạy nhanh
@@ -67,6 +67,7 @@ Vào `http://localhost:5173`, bấm đăng nhập, nhập email bất kỳ (ví 
 ```bash
 npm run install:all
 cp .env.example server/.env   # giữ STORAGE_DRIVER=seaweedfs; điền GOOGLE_CLIENT_ID hoặc đặt AUTH_DEV=1
+cp seaweed/s3.example.json seaweed/s3.json   # rồi thay khóa mẫu bằng khóa ngẫu nhiên (xem mục "Tạo khóa" bên dưới)
 
 # Khởi động SeaweedFS (S3 tại :8333) — chọn một:
 docker compose up seaweedfs -d
@@ -79,7 +80,7 @@ npm run dev:server            # terminal 1
 npm run dev:client            # terminal 2 → http://localhost:5173
 ```
 
-Trên Windows có thể chạy gộp cả ba tiến trình bằng `npm run dev` (script `dev:weed` gọi `weed.exe` ghi dữ liệu vào `C:/weed-data`; sửa đường dẫn trong `package.json` nếu cần). Server sẽ chờ cổng 8333 sẵn sàng rồi mới khởi động.
+Trên Windows có thể chạy gộp cả ba tiến trình bằng `npm run dev` (script `dev:weed` gọi `weed.exe` ghi dữ liệu vào `C:/weed-data`; sửa đường dẫn trong `package.json` nếu cần). Cần chạy `npm install` ở thư mục gốc một lần để có `cross-env`, `concurrently`, `wait-on`. Script tự chờ cổng 8333 sẵn sàng, tạo bucket (`init:bucket`) rồi mới khởi động server, nên **không cần** chạy `init:bucket` riêng và đừng chạy khi `weed.exe` chưa bật. Khóa admin để tạo bucket đặt trong `server/.env` (`ADMIN_ACCESS_KEY` / `ADMIN_SECRET_KEY`), có thể xóa đi sau khi bucket đã tạo.
 
 **Phân quyền S3 (`seaweed/s3.json`)** — mỗi tài khoản chỉ có quyền vừa đủ:
 
@@ -89,7 +90,21 @@ Trên Windows có thể chạy gộp cả ba tiến trình bằng `npm run dev` 
 | `viewer`  | `viewer-dev-key` / `viewer-dev-secret` | `Read`, `List` trên bucket `gallery`          | Người chỉ được xem (thầy, người kiểm tra). Không ghi/xóa được.                                     |
 | `admin`   | `admin-dev-key` / `admin-dev-secret`   | `Admin`                                       | Chỉ dùng khi quản trị, ví dụ `npm run init:bucket`. **Không** đặt vào `.env` của app.              |
 
-Khóa trong `server/.env` (`S3_ACCESS_KEY`/`S3_SECRET_KEY`) phải là khóa của tài khoản `app`. Nếu `.env` cũ còn `gallery-dev-key` thì đổi sang `app-dev-key` / `app-dev-secret`. Khi triển khai thật, thay toàn bộ khóa mẫu bằng chuỗi ngẫu nhiên dài và không commit lên git. Server báo `Bucket "gallery" chưa tồn tại` nghĩa là chưa chạy `npm run init:bucket`.
+Khóa trong `server/.env` (`S3_ACCESS_KEY`/`S3_SECRET_KEY`) phải là khóa của tài khoản `app` trong `seaweed/s3.json`. Nếu `.env` cũ còn `gallery-dev-key` thì đổi sang khóa `app`.
+
+**Tạo khóa thật (bắt buộc khi triển khai):** `seaweed/s3.example.json` chỉ chứa khóa mẫu ai cũng đoán được. Sao thành `seaweed/s3.json` (file này nằm trong `.gitignore`, không bao giờ commit) rồi thay mỗi access key và secret key bằng chuỗi ngẫu nhiên riêng cho từng tài khoản:
+
+```bash
+openssl rand -hex 10   # access key (Git Bash / Linux / Mac)
+openssl rand -hex 24   # secret key
+```
+
+```powershell
+-join ((1..10 | % { '{0:x2}' -f (Get-Random -Max 256) }))   # access key (PowerShell)
+-join ((1..24 | % { '{0:x2}' -f (Get-Random -Max 256) }))   # secret key
+```
+
+Đặt khóa `app` vào `S3_ACCESS_KEY`/`S3_SECRET_KEY` và khóa `admin` vào `ADMIN_ACCESS_KEY`/`ADMIN_SECRET_KEY` trong `server/.env`. Sau khi sửa `s3.json` phải khởi động lại SeaweedFS (nó chỉ đọc file lúc khởi động). Không dán khóa thật vào chat hay gửi file `s3.json` cho người khác.
 
 **Cổng quản trị của SeaweedFS:** master `9333`, volume `8080`, filer `8888` **không có đăng nhập**. Vì vậy lệnh chạy ở trên có `-ip.bind=127.0.0.1` để chỉ máy này truy cập được (đã kiểm thử: các cổng 9333/8080/8888/8333 không còn truy cập được qua IP mạng LAN). Muốn máy khác trong mạng xem được S3 thì chỉ mở riêng S3 bằng `-s3.ip.bind=0.0.0.0` và dùng tài khoản `viewer`. Với Docker Compose, chỉ cổng S3 được mở và chỉ ở `127.0.0.1:8333`.
 
@@ -101,6 +116,8 @@ export SESSION_SECRET=mot-chuoi-ngau-nhien-dai
 export GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com   # hoặc AUTH_DEV=1 để thử
 docker compose up --build
 ```
+
+> Lưu ý: `docker-compose.yml` hiện vẫn ghi cứng khóa mẫu (`admin-dev-key`, `app-dev-key`...) và gắn `seaweed/s3.json` vào container. Muốn chạy Docker với khóa thật thì phải sửa các dòng `environment` trong `docker-compose.yml` cho khớp `s3.json`. Máy mới clone repo cần chạy `cp seaweed/s3.example.json seaweed/s3.json` trước, nếu không Docker sẽ gắn nhầm thành thư mục.
 
 Mở `http://localhost:4000` (server phục vụ luôn bản build của client). Dữ liệu nằm trong volume `seaweed-data` và `app-data`. Service `bucket-init` chạy một lần để tạo bucket bằng tài khoản admin rồi thoát; `app` chỉ khởi động sau khi nó xong. Dừng: `docker compose down` (thêm `-v` nếu muốn xóa sạch dữ liệu).
 
@@ -124,6 +141,20 @@ Không dùng Docker: `npm run build && npm start` rồi mở `http://localhost:4
 | `OLD_VERSION_TTL_MS`                                            | `3600000`           | Thời gian giữ file version cũ sau khi sửa ảnh |
 | `DEBUG_FAULTS`                                                  | trống               | Chỉ khi nghiệm thu, **tắt** khi triển khai    |
 
+### Khi SeaweedFS không chạy hoặc bị sập
+
+| Tình huống                            | Hành vi của server                                                                                                                                                                      |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Khởi động khi SeaweedFS chưa sẵn sàng | Thử kết nối lại mỗi 2 giây, tối đa 30 lần (~60 giây), log `[storage] chưa kết nối được kho, thử lại n/30...`. Hết lượt mới thoát, kèm thông báo "Không kết nối được SeaweedFS tại ...". |
+| Sai khóa (403) hoặc thiếu bucket      | Báo ngay, không thử lại vì thử lại cũng vô ích.                                                                                                                                         |
+| Đang chạy thì SeaweedFS sập           | Album và feed vẫn lên (metadata nằm trong SQLite) nhưng ảnh vỡ. Upload báo lỗi, không sinh bản ghi ma. Xóa ảnh được ẩn đi và worker thử lại mỗi 60 giây khi kho sống lại.               |
+| Kho treo, không trả lời               | Kết nối quá 5 giây hoặc 30 giây không có dữ liệu thì bỏ, thay vì treo vô hạn.                                                                                                           |
+| Tự chuyển sang kho khác               | **Không**, chủ đích để tránh file nằm rải ở hai nơi.                                                                                                                                    |
+
+Kiểm tra nhanh kho còn sống không: `GET /api/health` (không cần đăng nhập). Trả `200 {"ok":true,"storage":"up"}` khi ổn, `503 {"ok":false,"storage":"down"}` khi không kết nối được kho hoặc quá 3 giây không phản hồi. Chi tiết lỗi chỉ ghi vào log server, không trả ra ngoài.
+
+**Chưa có:** sao lưu/khôi phục tự động, trang "đang bảo trì" ở client, versioning/object lock. Hiện chạy một node, không nhân bản: mất thư mục dữ liệu `weed` là mất ảnh, nên hãy tự sao lưu `server/data/gallery.db` và thư mục `weed` ra ổ khác.
+
 ### Đăng nhập Google
 
 1. Google Cloud Console → _APIs & Services → Credentials → Create OAuth client ID → Web application_.
@@ -141,8 +172,10 @@ Không dùng Docker: `npm run build && npm start` rồi mở `http://localhost:4
 | Log `weed` hiện `raft.Server: Not current leader`, `WaitUntilConnected still waiting` lúc mới khởi động | Bình thường: SeaweedFS đang bầu leader, vài giây đến vài chục giây sau sẽ có dòng `becomes leader`. Chỉ lo khi lặp mãi không dừng.                                                                                                                                                                                                                                                      |
 | Đăng nhập không có nút Google                                                                           | Chưa đặt `GOOGLE_CLIENT_ID`. Đặt nó hoặc bật `AUTH_DEV=1`, rồi khởi động lại server.                                                                                                                                                                                                                                                                                                    |
 | Đăng nhập Google báo lỗi origin                                                                         | Thêm đúng `http://localhost:5173` (dev) hoặc `:4000` (production) vào _Authorized JavaScript origins_.                                                                                                                                                                                                                                                                                  |
-| Upload lỗi `internal_error` / không kết nối được S3                                                     | SeaweedFS chưa chạy ở `:8333`, hoặc khóa trong `.env` không phải khóa tài khoản `app` trong `seaweed/s3.json` (báo `AccessDenied`). Hoặc chuyển sang `STORAGE_DRIVER=local`.                                                                                                                                                                                                            |
-| Server thoát với `Bucket "gallery" chưa tồn tại`                                                        | Chạy `npm run init:bucket` một lần (dùng tài khoản admin).                                                                                                                                                                                                                                                                                                                              |
+| Upload lỗi `internal_error` / không kết nối được S3                                                     | SeaweedFS chưa chạy ở `:8333` (kiểm tra `GET /api/health`), hoặc khóa trong `.env` không phải khóa tài khoản `app` trong `seaweed/s3.json` (báo `AccessDenied`). Hoặc chuyển sang `STORAGE_DRIVER=local`.                                                                                                                                                                               |
+| Server thoát với `Bucket "gallery" chưa tồn tại`                                                        | SeaweedFS đã chạy nhưng chưa có bucket: chạy `npm run init:bucket` một lần (dùng tài khoản admin).                                                                                                                                                                                                                                                                                      |
+| Server thoát với `Không kết nối được SeaweedFS tại ...`                                                 | `weed.exe` chưa chạy, đã tắt, hoặc sai `S3_ENDPOINT`. Bật SeaweedFS rồi chạy lại (server đã tự chờ ~60 giây trước khi thoát).                                                                                                                                                                                                                                                           |
+| `init:bucket` báo `Bị từ chối` hoặc `AggregateError`                                                    | `Bị từ chối`: `ADMIN_ACCESS_KEY`/`ADMIN_SECRET_KEY` trong `server/.env` không khớp tài khoản `admin` trong `seaweed/s3.json` (mặc định script dùng khóa mẫu `admin-dev-*`). `AggregateError`: không kết nối được, `weed.exe` đang tắt.                                                                                                                                                  |
 | Cổng 4000/5173/8333 đã bị chiếm                                                                         | Đổi `PORT` trong `.env` (cổng client đổi trong `client/vite.config.js`, và nhớ đổi địa chỉ proxy tương ứng).                                                                                                                                                                                                                                                                            |
 | Nền chỉ có màu xanh navy tối, không thấy gradient tím                                                   | Máy đang bật "giảm chuyển động" (Windows: _Accessibility → Visual effects → Animation effects_). Bản hiện tại đã giữ gradient đứng yên ở đoạn có màu tím; bật lại animation để nền chuyển động. Khi giảm chuyển động, trang album đổi trang ngay thay vì lật.                                                                                                                           |
 | Muốn xóa sạch dữ liệu dev                                                                               | Dừng server, xóa `server/data/` (DB + ảnh khi dùng `local`). Với SeaweedFS xóa thêm thư mục dữ liệu `weed` hoặc `docker compose down -v`.                                                                                                                                                                                                                                               |
@@ -198,7 +231,7 @@ Crop (khóa 1:1/4:3/3:4), xoay 90°, lật ngang, 7 filter, khôi phục, tải 
 
 ## API
 
-`GET /api/config` · `POST /api/auth/google|dev|logout` · `GET/PATCH /api/me` · `POST/DELETE /api/me/avatar` · `GET /api/friends` · `POST /api/friends/request` · `POST /api/friends/requests/:id/accept` · `DELETE /api/friends/requests/:id` · `DELETE /api/friends/:userId` · `POST /api/photos` (multipart: `photos` ×1–5, `title`/`alt`, `meta` = JSON mảng `{title, alt, edit:{crop}}`) · `GET /api/photos/mine` · `GET /api/feed` · `GET /api/albums/:userId|me` · `GET/PATCH/DELETE /api/photos/:id` · `POST /api/photos/:id/edit` · `POST /api/photos/reorder` · `GET /api/photos/:id/original|download` · `PUT /api/photos/:id/reaction` · `GET/POST /api/photos/:id/comments` · `DELETE /api/comments/:id`.
+`GET /api/health` · `GET /api/config` · `POST /api/auth/google|dev|logout` · `GET/PATCH /api/me` · `POST/DELETE /api/me/avatar` · `GET /api/friends` · `POST /api/friends/request` · `POST /api/friends/requests/:id/accept` · `DELETE /api/friends/requests/:id` · `DELETE /api/friends/:userId` · `POST /api/photos` (multipart: `photos` ×1–5, `title`/`alt`, `meta` = JSON mảng `{title, alt, edit:{crop}}`) · `GET /api/photos/mine` · `GET /api/feed` · `GET /api/albums/:userId|me` · `GET/PATCH/DELETE /api/photos/:id` · `POST /api/photos/:id/edit` · `POST /api/photos/reorder` · `GET /api/photos/:id/original|download` · `PUT /api/photos/:id/reaction` · `GET/POST /api/photos/:id/comments` · `DELETE /api/comments/:id`.
 Mọi request ghi cần header `X-Requested-With: gallery` (chống CSRF, cookie `SameSite=Lax`).
 
 ## Kiểm thử & bằng chứng nghiệm thu
@@ -206,7 +239,7 @@ Mọi request ghi cần header `X-Requested-With: gallery` (chống CSRF, cookie
 ```bash
 npm run testdata                  # sinh test-data/: JPEG, PNG, EXIF orientation 6 + GPS giả (10.0, 106.0),
                                   # file text đổi đuôi, ảnh thiếu byte, ảnh 49 MP (nhỏ về dung lượng), ảnh > 10 MiB, ảnh 16:9
-npm test                          # 12 ca e2e: upload, trộn file giả, 413, EXIF, lỗi DB sau khi ghi file, chỉnh sửa/version/khôi phục, xóa, bạn bè...
+npm test                          # 15 ca e2e: health check, retry khởi động, upload, trộn file giả, 413, EXIF, lỗi DB sau khi ghi file, chỉnh sửa/version/khôi phục, xóa, bạn bè...
 npm run init:bucket               # (một lần) tạo bucket bằng tài khoản admin
 TEST_STORAGE=seaweedfs S3_ENDPOINT=http://localhost:8333 S3_ACCESS_KEY=app-dev-key S3_SECRET_KEY=app-dev-secret npm test   # cùng bộ test trên SeaweedFS thật, bằng tài khoản app
 npm --prefix client run smoke     # mount toàn bộ UI bằng jsdom, đi qua 4 trang + viewer + editor
@@ -219,4 +252,5 @@ Mỗi ảnh có cùng `photoId` ở response, hàng DB (`sqlite3 server/data/gal
 ## Ghi chú
 
 - Chưa có rate limit/quota; thêm khi triển khai công khai.
-- Mật khẩu/khóa thật không nằm trong repo; `seaweed/s3.json` chỉ chứa khóa mẫu cho dev.
+- Mật khẩu/khóa thật không nằm trong repo: `seaweed/s3.json` (khóa thật) và `server/.env` nằm trong `.gitignore`; repo chỉ có `seaweed/s3.example.json` và `.env.example` với khóa mẫu.
+- Trên Windows, ca test "tổng request > 55 MiB → 413" chấp nhận cả lỗi `ECONNRESET` vì server đóng kết nối ngay khi từ chối.

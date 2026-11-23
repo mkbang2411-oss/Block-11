@@ -13,32 +13,40 @@ import { assertValidKey } from "./keys.js";
 export class S3Storage {
   constructor({ endpoint, region, bucket, accessKeyId, secretAccessKey }) {
     this.bucket = bucket;
+    this.endpoint = endpoint;
     this.name = `s3:${endpoint}/${bucket}`;
     this.client = new S3Client({
       endpoint,
       region,
       forcePathStyle: true,
+      maxAttempts: 2,
+      // Tránh treo vô hạn khi SeaweedFS đơ: 5 giây để kết nối, 30 giây không có dữ liệu thì bỏ.
+      requestHandler: { connectionTimeout: 5000, requestTimeout: 30000 },
       credentials: accessKeyId ? { accessKeyId, secretAccessKey } : undefined,
     });
   }
   async init() {
     try {
       await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }));
+      return;
     } catch (e) {
-      if (e?.$metadata?.httpStatusCode === 403)
+      const status = e?.$metadata?.httpStatusCode;
+      if (status === 403)
         throw new Error(
           `Không có quyền truy cập bucket "${this.bucket}": kiểm tra S3_ACCESS_KEY / S3_SECRET_KEY khớp seaweed/s3.json`,
         );
-      try {
-        await this.client.send(
-          new CreateBucketCommand({ Bucket: this.bucket }),
-        );
-      } catch {
-        // Tài khoản app cố ý KHÔNG có quyền Admin nên không tự tạo bucket được.
-        throw new Error(
-          `Bucket "${this.bucket}" chưa tồn tại. Tạo một lần bằng tài khoản admin: npm run init:bucket`,
-        );
-      }
+      // Không có phản hồi HTTP nào = chưa kết nối được SeaweedFS (không phải thiếu bucket).
+      if (!status) throw unreachable(this.endpoint, e);
+    }
+    // Có phản hồi (404...) nghĩa là bucket chưa có.
+    try {
+      await this.client.send(new CreateBucketCommand({ Bucket: this.bucket }));
+    } catch (e) {
+      if (!e?.$metadata?.httpStatusCode) throw unreachable(this.endpoint, e);
+      // Tài khoản app cố ý KHÔNG có quyền Admin nên không tự tạo bucket được.
+      throw new Error(
+        `Bucket "${this.bucket}" chưa tồn tại. Tạo một lần bằng tài khoản admin: npm run init:bucket`,
+      );
     }
   }
   // Kiểm tra nhanh kho còn sống không (dùng cho /api/health). Quá 3 giây coi như lỗi.
@@ -108,3 +116,13 @@ export class S3Storage {
 }
 const isMissing = (e) =>
   e?.name === "NoSuchKey" || e?.$metadata?.httpStatusCode === 404;
+
+// Lỗi "chưa kết nối được kho": đáng để thử lại (khác với sai khóa / thiếu bucket).
+function unreachable(endpoint, cause) {
+  const err = new Error(
+    `Không kết nối được SeaweedFS tại ${endpoint}. Kiểm tra weed đã chạy chưa.`,
+    { cause },
+  );
+  err.code = "STORAGE_UNREACHABLE";
+  return err;
+}

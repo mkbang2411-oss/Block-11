@@ -491,3 +491,61 @@ test("health: 200 khi kho sống, 503 khi kho lỗi, không cần đăng nhập"
   assert.deepEqual(await r2.json(), { ok: false, storage: "down" });
   s3.close();
 });
+
+test("khởi động: kho chưa sẵn sàng thì thử lại, lỗi khác thì báo ngay", async () => {
+  const { initWithRetry } = await import("../src/storage/index.js");
+  const { S3Storage } = await import("../src/storage/s3.js");
+  const mute = () => {};
+  // Lỗi "chưa kết nối" 2 lần rồi thành công -> thử lại và thành công
+  let n = 0;
+  await initWithRetry(
+    {
+      init: async () => {
+        if (++n < 3)
+          throw Object.assign(new Error("x"), { code: "STORAGE_UNREACHABLE" });
+      },
+    },
+    { delayMs: 1, log: mute },
+  );
+  assert.equal(n, 3);
+  // Lỗi khác (sai khóa...) -> không thử lại
+  let m = 0;
+  await assert.rejects(
+    initWithRetry(
+      {
+        init: async () => {
+          m++;
+          throw new Error("sai khóa");
+        },
+      },
+      { delayMs: 1, log: mute },
+    ),
+    /sai khóa/,
+  );
+  assert.equal(m, 1);
+  // Hết lượt thử thì ném lỗi
+  await assert.rejects(
+    initWithRetry(
+      {
+        init: async () => {
+          throw Object.assign(new Error("x"), { code: "STORAGE_UNREACHABLE" });
+        },
+      },
+      { tries: 2, delayMs: 1, log: mute },
+    ),
+    { code: "STORAGE_UNREACHABLE" },
+  );
+  // S3 thật nhưng cổng đóng: báo "không kết nối được", KHÔNG báo "bucket chưa tồn tại"
+  const dead = new S3Storage({
+    endpoint: "http://127.0.0.1:1",
+    region: "us-east-1",
+    bucket: "gallery",
+    accessKeyId: "a",
+    secretAccessKey: "b",
+  });
+  await assert.rejects(
+    dead.init(),
+    (e) =>
+      e.code === "STORAGE_UNREACHABLE" && /Không kết nối được/.test(e.message),
+  );
+});

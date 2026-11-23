@@ -7,3 +7,5 @@ server/.env
 .env
 *.log
 seaweed/s3.json
+s3.json
+docker-compose.yml
