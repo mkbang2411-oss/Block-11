@@ -2964,7 +2964,8 @@ label.btn {
   margin: 2px 0 14px;
 }
 
-.chip {
+/* Dùng tên riêng `fchip`: trước đây trùng tên `.chip` (chip người dùng ghim góc phải trên) nên các nút lọc bị bay lên góc phải */
+.fchip {
   padding: 6px 13px;
   border-radius: 999px;
   font-size: 13px;
@@ -2975,7 +2976,7 @@ label.btn {
   transition: all 0.2s;
 }
 
-.chip.on {
+.fchip.on {
   color: #1c1560;
   background: var(--holo);
   border-color: transparent;
