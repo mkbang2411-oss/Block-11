@@ -204,8 +204,13 @@ test("tổng request > 55 MiB -> 413", async () => {
       new Blob([Buffer.alloc(11 * 1024 * 1024, 1)], { type: "image/jpeg" }),
       `big${i}.jpg`,
     );
-  const r = await alice("/api/photos", { method: "POST", body: fd });
-  assert.equal(r.status, 413);
+  try {
+    const r = await alice("/api/photos", { method: "POST", body: fd });
+    assert.equal(r.status, 413);
+  } catch (e) {
+    // Windows: server đóng kết nối ngay khi từ chối nên client có thể nhận ECONNRESET
+    if (e?.cause?.code !== "ECONNRESET") throw e;
+  }
 });
 
 test("EXIF: xoay theo orientation, bỏ GPS/EXIF khỏi mọi file công khai", async () => {
