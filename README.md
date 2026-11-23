@@ -153,7 +153,29 @@ Không dùng Docker: `npm run build && npm start` rồi mở `http://localhost:4
 
 Kiểm tra nhanh kho còn sống không: `GET /api/health` (không cần đăng nhập). Trả `200 {"ok":true,"storage":"up"}` khi ổn, `503 {"ok":false,"storage":"down"}` khi không kết nối được kho hoặc quá 3 giây không phản hồi. Chi tiết lỗi chỉ ghi vào log server, không trả ra ngoài.
 
-**Chưa có:** sao lưu/khôi phục tự động, trang "đang bảo trì" ở client, versioning/object lock. Hiện chạy một node, không nhân bản: mất thư mục dữ liệu `weed` là mất ảnh, nên hãy tự sao lưu `server/data/gallery.db` và thư mục `weed` ra ổ khác.
+**Chưa có:** trang "đang bảo trì" ở client, versioning/object lock. Hiện chạy một node, không nhân bản: mất thư mục dữ liệu `weed` là mất ảnh, nên hãy sao lưu định kỳ như bên dưới.
+
+### Sao lưu và khôi phục
+
+```bash
+npm run backup -- D:/khoanh-khac-backup      # chạy được khi server đang chạy; bỏ đường dẫn thì dùng BACKUP_DIR hoặc ./server/backups
+```
+
+- **Nên đặt thư mục sao lưu ở ổ đĩa khác** (hoặc ổ ngoài, thư mục đồng bộ cloud). Sao lưu cùng ổ với `C:/weed-data` không cứu được khi hỏng ổ.
+- Mỗi lần chạy: lưu một ảnh chụp SQLite `db/gallery-<thời gian>.db` (nhất quán kể cả khi server đang ghi; giữ 14 bản mới nhất, đổi bằng `BACKUP_KEEP_DB`) và chép các file ảnh **còn chưa có** vào `files/` (đọc qua API của kho nên không chép giữa chừng thư mục của weed). Chạy lại nhiều lần rất nhanh vì chỉ chép file mới.
+- `files/` **không bao giờ xóa** file: ảnh lỡ bị xóa khỏi kho vẫn còn ở đây. Đổi lại thư mục này chỉ lớn lên, cần tự dọn khi cần.
+- Chạy mỗi ngày bằng **Task Scheduler** (Windows): tạo tác vụ chạy `npm run backup -- D:/khoanh-khac-backup` với thư mục bắt đầu là thư mục dự án.
+- Backup dùng khóa của tài khoản `app` trong `server/.env` (chỉ cần quyền đọc/liệt kê).
+
+**Khôi phục** (dừng server trước, bật SeaweedFS và đảm bảo bucket đã có):
+
+```bash
+npm run restore -- D:/khoanh-khac-backup                  # DB mới nhất + đẩy lên kho những ảnh còn thiếu
+npm run restore -- D:/khoanh-khac-backup --force          # ghi đè DB đang có (DB cũ đổi tên thành .bak)
+npm run restore -- D:/khoanh-khac-backup --db gallery-2026-11-23_19-40-00.db   # chọn bản DB cụ thể
+```
+
+Nếu mất cả kho: cài lại SeaweedFS, chạy `npm run init:bucket` để tạo bucket, rồi `restore`. Kho là phần ghi đè an toàn (chỉ thêm file chưa có), còn DB cần `--force` nếu đã tồn tại.
 
 ### Đăng nhập Google
 

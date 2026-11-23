@@ -7,7 +7,9 @@
     "start": "node --env-file-if-exists=.env src/index.js",
     "init:bucket": "node --env-file-if-exists=.env scripts/create-bucket.mjs",
     "dev": "node --watch --env-file-if-exists=.env src/index.js",
-    "test": "node --test test/e2e.test.js test/activity.test.js"
+    "test": "node --test test/e2e.test.js test/activity.test.js",
+    "backup": "node --env-file-if-exists=.env scripts/backup.mjs",
+    "restore": "node --env-file-if-exists=.env scripts/restore.mjs"
   },
   "engines": {
     "node": ">=22.9"

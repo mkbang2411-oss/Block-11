@@ -9,3 +9,4 @@ server/.env
 seaweed/s3.json
 s3.json
 docker-compose.yml
+server/backups/

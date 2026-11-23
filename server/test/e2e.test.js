@@ -549,3 +549,35 @@ test("khởi động: kho chưa sẵn sàng thì thử lại, lỗi khác thì b
       e.code === "STORAGE_UNREACHABLE" && /Không kết nối được/.test(e.message),
   );
 });
+
+test("sao lưu rồi khôi phục: DB + ảnh về đúng, chạy lại không chép trùng", async () => {
+  const { backupAll, restoreAll } = await import("../src/backup.js");
+  const dir = path.join(tmp, "bk");
+  const mute = () => {};
+  const r1 = await backupAll({ db, storage, dir, log: mute });
+  const keys = await storage.list("");
+  assert.ok(
+    keys.length > 0 && r1.files === keys.length && r1.copied === keys.length,
+  );
+  const r2 = await backupAll({ db, storage, dir, log: mute });
+  assert.equal(r2.copied, 0, "lần 2 không chép lại file đã có");
+  // Mất hết kho -> khôi phục lại
+  for (const k of keys) await storage.delete(k);
+  assert.equal((await storage.list("")).length, 0);
+  const dbCopy = path.join(tmp, "restored.sqlite");
+  const rr = await restoreAll({ storage, dir, dbPath: dbCopy, log: mute });
+  assert.equal(rr.uploaded, keys.length);
+  assert.deepEqual(await storage.list(""), keys);
+  const Database = (await import("better-sqlite3")).default;
+  const rdb = new Database(dbCopy, { readonly: true });
+  assert.equal(
+    rdb.prepare("select count(*) c from photos").get().c,
+    db.prepare("select count(*) c from photos").get().c,
+  );
+  rdb.close();
+  // Không ghi đè DB đang có nếu thiếu --force
+  await assert.rejects(
+    restoreAll({ storage, dir, dbPath: dbCopy, log: mute }),
+    /--force/,
+  );
+});
