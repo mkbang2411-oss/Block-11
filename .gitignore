@@ -1,0 +1,8 @@
+node_modules/
+client/dist/
+server/data/
+test-data/
+weed.exe
+server/.env
+.env
+*.log

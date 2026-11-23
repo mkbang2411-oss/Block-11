@@ -1,0 +1,9 @@
+{
+  "identities": [
+    {
+      "name": "gallery",
+      "credentials": [{ "accessKey": "gallery-dev-key", "secretKey": "gallery-dev-secret" }],
+      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+    }
+  ]
+}
