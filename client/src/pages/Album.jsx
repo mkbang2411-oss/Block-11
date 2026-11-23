@@ -1,6 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
-import { motion } from "framer-motion";
+import { animate, motion } from "framer-motion";
 import { ArrowLeft, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { api } from "../lib/api.js";
 import { prefersReducedMotion, useElementSize } from "../lib/hooks.js";
@@ -37,6 +44,110 @@ function CardBody({ p, cell }) {
       sizes={`${Math.round(cell.w)}px`}
       className={`ph ${p.aspect === "1:1" ? "sq" : "fill"}`}
     />
+  );
+}
+
+/* ---- Tờ giấy lật CONG THẬT ----
+   Tờ giấy được cắt thành N dải dọc lồng nhau (preserve-3d). Mỗi dải xoay thêm một góc nhỏ so với dải trước,
+   nên mép tờ giấy bị uốn lại phía sau khi lật (như giấy thật) rồi duỗi ra khi đáp xuống.
+   Góc quay cập nhật trực tiếp vào DOM mỗi khung hình (không re-render React). */
+const N = 12,
+  TILT = 4,
+  BEND = 52;
+function Leaf({ pageW, pageH, dir, front, back, render, onDone }) {
+  const root = useRef(null);
+  const cast = useRef(null);
+  const sw = pageW / N;
+  useLayoutEffect(() => {
+    const strips = [...root.current.querySelectorAll(".strip")];
+    const shades = strips.map((s) => [
+      ...s.querySelectorAll(":scope > .face > .sh"),
+    ]);
+    const apply = (t) => {
+      const th = -dir * (TILT + (180 - 2 * TILT) * t);
+      const d = (dir * BEND * Math.sin(2 * Math.PI * t)) / N;
+      root.current.style.transform = `rotateY(${th}deg)`;
+      strips.forEach((el, i) => {
+        if (i) el.style.transform = `rotateY(${d}deg)`;
+        const a = ((th + i * d) * Math.PI) / 180;
+        const o = 0.05 + 0.38 * Math.abs(Math.sin(a));
+        shades[i].forEach((sh) => (sh.style.opacity = o));
+      });
+      // bóng tờ giấy đổ xuống trang bên dưới
+      const c = cast.current;
+      if (c) {
+        const side = t < 0.5 ? dir : -dir;
+        const w = pageW * Math.abs(Math.cos((th * Math.PI) / 180));
+        c.style.width = `${w}px`;
+        c.style.left = `${side === 1 ? pageW : pageW - w}px`;
+        c.style.opacity = Math.sin(Math.PI * t) * 0.9;
+        c.style.background = `linear-gradient(${side === 1 ? 90 : 270}deg, rgba(40,25,5,.38), transparent)`;
+      }
+    };
+    apply(0);
+    const ctl = animate(0, 1, {
+      duration: FLIP_MS,
+      ease: [0.45, 0.05, 0.25, 1],
+      onUpdate: apply,
+      onComplete: onDone,
+    });
+    return () => ctl.stop();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const fo = (i) => (dir === 1 ? i * sw : (N - 1 - i) * sw);
+  const bo = (i) => (dir === 1 ? (N - 1 - i) * sw : i * sw);
+  const Strip = (i) => (
+    <div
+      key={i}
+      className="strip"
+      style={{
+        width: sw + 1,
+        height: pageH,
+        left: i === 0 ? (dir === 1 ? 0 : pageW - sw - 1) : dir === 1 ? sw : -sw,
+        transformOrigin: dir === 1 ? "0 50%" : "100% 50%",
+      }}
+    >
+      <div className="face front">
+        <div
+          className="inner"
+          style={{ left: -fo(i), width: pageW, height: pageH }}
+        >
+          {render(front, dir === 1 ? "r" : "l")}
+        </div>
+        <i className="sh" />
+      </div>
+      <div className="face back">
+        <div
+          className="inner"
+          style={{ left: -bo(i), width: pageW, height: pageH }}
+        >
+          {render(back, dir === 1 ? "l" : "r")}
+        </div>
+        <i className="sh" />
+      </div>
+      {i < N - 1 && Strip(i + 1)}
+    </div>
+  );
+  return (
+    <>
+      <i
+        ref={cast}
+        className="cast"
+        style={{ height: pageH }}
+        aria-hidden="true"
+      />
+      <div
+        ref={root}
+        className="leaf"
+        style={{
+          width: pageW,
+          height: pageH,
+          left: dir === 1 ? pageW : 0,
+          transformOrigin: dir === 1 ? "0 50%" : "100% 50%",
+        }}
+      >
+        {Strip(0)}
+      </div>
+    </>
   );
 }
 
@@ -107,7 +218,7 @@ export default function Album({ userId, search }) {
   const cellH0 =
     (areaH - 2 * COVER - THICK - 2 * PAD - (ROWS - 1) * GAP - 16) / ROWS;
   const cellWmax =
-    (size.w - sideRoom - 2 * COVER - pps * padPage) / (pps * COLS);
+    (size.w - sideRoom - 2 * COVER - 30 - pps * padPage) / (pps * COLS);
   const cw = Math.max(40, Math.floor(Math.min(cellH0 * 0.75, cellWmax)));
   const cell = { w: cw, h: Math.round((cw * 4) / 3) };
   const pageW = padPage + COLS * cell.w,
@@ -380,7 +491,7 @@ export default function Album({ userId, search }) {
                       ? { scale: 0.2, opacity: 0, rotate: -18 }
                       : false
                   }
-                  animate={{ scale: 1, opacity: 1 }}
+                  animate={{ scale: 1, opacity: 1, rotate: tilt(slot) }}
                   transition={{
                     type: "spring",
                     stiffness: 240,
@@ -435,6 +546,9 @@ export default function Album({ userId, search }) {
     }
   }
   const spreadW = pageW * pps;
+  const frac = pageCount > pps ? first / (pageCount - pps) : 0; // đã lật bao nhiêu -> chồng giấy trái/phải dày mỏng
+  const tl = 3 + frac * 12,
+    tr = 3 + (1 - frac) * 12;
 
   return (
     <div className="album" ref={areaRef}>
@@ -487,41 +601,34 @@ export default function Album({ userId, search }) {
                 <motion.div
                   key={pps === 1 ? first : "spread"}
                   className="spread"
-                  style={{ width: spreadW, height: pageH }}
+                  style={{
+                    width: spreadW,
+                    height: pageH,
+                    "--tl": `${tl}px`,
+                    "--tr": `${tr}px`,
+                  }}
                   initial={pps === 1 ? { opacity: 0, x: dir * 36 } : false}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ duration: 0.22 }}
                 >
+                  <i className="stack l" aria-hidden="true" />
+                  <i className="stack r" aria-hidden="true" />
+                  <i className="stack b" aria-hidden="true" />
                   {Sheet(leftPage, "l", !flip)}
                   {pps === 2 && Sheet(rightPage, "r", !flip)}
                   {pps === 2 && <div className="gutter" aria-hidden="true" />}
 
                   {leaf && (
-                    <motion.div
-                      className="leaf"
-                      style={{
-                        width: pageW,
-                        height: pageH,
-                        left: flip.dir === 1 ? pageW : 0,
-                        transformOrigin:
-                          flip.dir === 1 ? "left center" : "right center",
-                      }}
-                      initial={{ rotateY: 0 }}
-                      animate={{ rotateY: flip.dir === 1 ? -180 : 180 }}
-                      transition={{
-                        duration: FLIP_MS,
-                        ease: [0.45, 0.05, 0.25, 1],
-                      }}
-                      onAnimationComplete={endFlip}
-                    >
-                      <div className="face front">
-                        {Sheet(leaf.front, flip.dir === 1 ? "r" : "l", false)}
-                      </div>
-                      <div className="face back">
-                        {Sheet(leaf.back, flip.dir === 1 ? "l" : "r", false)}
-                      </div>
-                      <i className="leaf-shade" aria-hidden="true" />
-                    </motion.div>
+                    <Leaf
+                      key={`${flip.from}-${flip.to}`}
+                      pageW={pageW}
+                      pageH={pageH}
+                      dir={flip.dir}
+                      front={leaf.front}
+                      back={leaf.back}
+                      render={(pi, side) => Sheet(pi, side, false)}
+                      onDone={endFlip}
+                    />
                   )}
                 </motion.div>
               </div>

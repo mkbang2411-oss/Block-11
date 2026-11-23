@@ -30,9 +30,11 @@ import { newId } from "./ids.js";
 import {
   notify,
   unreadCount,
+  unreadByKind,
   listNotifications,
   markAllRead,
 } from "./notify.js";
+import { logActivity, listActivity } from "./activity.js";
 
 const EMOJIS = ["❤️", "😆", "😮", "🥹", "🔥", "✨"];
 const L = config.limits;
@@ -127,14 +129,12 @@ export function createApp(storage) {
       !["GET", "HEAD", "OPTIONS"].includes(req.method) &&
       req.get("x-requested-with") !== "gallery"
     ) {
-      return res
-        .status(403)
-        .json({
-          error: {
-            code: "csrf",
-            message: "Có chút trục trặc, bạn tải lại trang rồi thử lại nhé.",
-          },
-        });
+      return res.status(403).json({
+        error: {
+          code: "csrf",
+          message: "Có chút trục trặc, bạn tải lại trang rồi thử lại nhé.",
+        },
+      });
     }
     res.set("Cache-Control", "no-store");
     next();
@@ -166,14 +166,12 @@ export function createApp(storage) {
           String(req.body?.credential || ""),
         );
       } catch (e) {
-        return res
-          .status(401)
-          .json({
-            error: {
-              code: "google_auth_failed",
-              message: "Đăng nhập Google không thành công.",
-            },
-          });
+        return res.status(401).json({
+          error: {
+            code: "google_auth_failed",
+            message: "Đăng nhập Google không thành công.",
+          },
+        });
       }
       const u = upsertUser(profile);
       issueSession(res, u.id);
@@ -207,12 +205,16 @@ export function createApp(storage) {
   api.patch("/me", requireAuth, express.json({ limit: "5kb" }), (req, res) => {
     const name = clean(req.body?.name, 60);
     if (!name)
-      return res
-        .status(400)
-        .json({
-          error: { code: "bad_name", message: "Tên không được để trống." },
-        });
+      return res.status(400).json({
+        error: { code: "bad_name", message: "Tên không được để trống." },
+      });
     db.prepare(`UPDATE users SET name = ? WHERE id = ?`).run(name, req.user.id);
+    if (name !== req.user.name)
+      logActivity({
+        user: req.user.id,
+        type: "rename",
+        data: { from: req.user.name, to: name },
+      });
     res.json({
       user: publicUser(
         db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.user.id),
@@ -256,6 +258,11 @@ export function createApp(storage) {
         await storage.delete(key).catch(() => {});
         throw e;
       }
+      logActivity({
+        user: req.user.id,
+        type: "avatar",
+        data: { reset: false },
+      });
       res.json({
         user: publicUser(
           db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.user.id),
@@ -274,6 +281,7 @@ export function createApp(storage) {
           `INSERT OR REPLACE INTO cleanup_queue(storage_key, not_before) VALUES (?, ?)`,
         ).run(old, now() + config.cleanup.oldVersionTtlMs);
     })();
+    logActivity({ user: req.user.id, type: "avatar", data: { reset: true } });
     res.json({
       user: publicUser(
         db.prepare(`SELECT * FROM users WHERE id = ?`).get(req.user.id),
@@ -332,14 +340,12 @@ export function createApp(storage) {
         .trim()
         .toLowerCase();
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email))
-        return res
-          .status(400)
-          .json({
-            error: {
-              code: "bad_email",
-              message: "Địa chỉ email không hợp lệ.",
-            },
-          });
+        return res.status(400).json({
+          error: {
+            code: "bad_email",
+            message: "Địa chỉ email không hợp lệ.",
+          },
+        });
       if (email === me.email)
         return res
           .status(400)
@@ -348,14 +354,12 @@ export function createApp(storage) {
         .prepare(`SELECT * FROM users WHERE email = ?`)
         .get(email);
       if (target && areFriends(me, target.id))
-        return res
-          .status(409)
-          .json({
-            error: {
-              code: "already_friends",
-              message: "Hai bạn đã là bạn bè.",
-            },
-          });
+        return res.status(409).json({
+          error: {
+            code: "already_friends",
+            message: "Hai bạn đã là bạn bè.",
+          },
+        });
       if (
         db
           .prepare(
@@ -363,14 +367,12 @@ export function createApp(storage) {
           )
           .get(me.id, email)
       ) {
-        return res
-          .status(409)
-          .json({
-            error: {
-              code: "already_requested",
-              message: "Bạn đã gửi lời mời cho email này.",
-            },
-          });
+        return res.status(409).json({
+          error: {
+            code: "already_requested",
+            message: "Bạn đã gửi lời mời cho email này.",
+          },
+        });
       }
       // Họ đã mời mình trước -> kết bạn luôn
       const reverse =
@@ -385,6 +387,11 @@ export function createApp(storage) {
           `UPDATE friend_requests SET status = 'accepted' WHERE id = ?`,
         ).run(reverse.id);
         notify({ to: target.id, actor: me.id, type: "friend_accepted" });
+        logActivity({
+          user: me.id,
+          type: "friend_added",
+          data: { userId: target.id, name: target.name },
+        });
         return res.json({ status: "accepted", friend: publicUser(target) });
       }
       db.prepare(
@@ -392,6 +399,11 @@ export function createApp(storage) {
       ).run(me.id, email, now());
       if (target)
         notify({ to: target.id, actor: me.id, type: "friend_request" });
+      logActivity({
+        user: me.id,
+        type: "friend_request",
+        data: { email, name: target?.name || null },
+      });
       res.json({ status: "pending", registered: !!target });
     },
   );
@@ -407,13 +419,20 @@ export function createApp(storage) {
       )
       .run(req.params.id, req.user.email);
     if (!r.changes)
-      return res
-        .status(404)
-        .json({
-          error: { code: "not_found", message: "Không tìm thấy lời mời." },
-        });
-    if (fr)
+      return res.status(404).json({
+        error: { code: "not_found", message: "Không tìm thấy lời mời." },
+      });
+    if (fr) {
       notify({ to: fr.from_id, actor: req.user.id, type: "friend_accepted" });
+      const who = db
+        .prepare(`SELECT name FROM users WHERE id = ?`)
+        .get(fr.from_id);
+      logActivity({
+        user: req.user.id,
+        type: "friend_added",
+        data: { userId: fr.from_id, name: who?.name || "" },
+      });
+    }
     res.json({ ok: true });
   });
   api.delete("/friends/requests/:id", requireAuth, (req, res) => {
@@ -427,10 +446,19 @@ export function createApp(storage) {
     const other = db
       .prepare(`SELECT * FROM users WHERE id = ?`)
       .get(req.params.userId);
-    if (other)
-      db.prepare(
-        `DELETE FROM friend_requests WHERE status = 'accepted' AND ((from_id = ? AND to_email = ?) OR (from_id = ? AND to_email = ?))`,
-      ).run(req.user.id, other.email, other.id, req.user.email);
+    if (other) {
+      const r = db
+        .prepare(
+          `DELETE FROM friend_requests WHERE status = 'accepted' AND ((from_id = ? AND to_email = ?) OR (from_id = ? AND to_email = ?))`,
+        )
+        .run(req.user.id, other.email, other.id, req.user.email);
+      if (r.changes)
+        logActivity({
+          user: req.user.id,
+          type: "unfriend",
+          data: { userId: other.id, name: other.name },
+        });
+    }
     res.json({ ok: true });
   });
 
@@ -504,6 +532,12 @@ export function createApp(storage) {
               faults,
             });
             const row = db.prepare(`SELECT * FROM photos WHERE id = ?`).get(id);
+            logActivity({
+              user: req.user.id,
+              type: "photo_upload",
+              photoId: id,
+              data: { title: row.title || "" },
+            });
             results.push({
               ...base,
               ok: true,
@@ -708,6 +742,12 @@ export function createApp(storage) {
               : 500;
         return res.status(status).json({ error: errorBody(e) }); // request lỗi không đổi ảnh đã công bố
       }
+      logActivity({
+        user: req.user.id,
+        type: "photo_edit",
+        photoId: p.id,
+        data: { restore: req.body?.restore === true },
+      });
       res.json({ photo: hydratePhotos([photoRow(p.id)], req.user.id)[0] });
     }),
   );
@@ -717,6 +757,11 @@ export function createApp(storage) {
     requireAuth,
     wrap(async (req, res) => {
       const p = ownedPhoto(req, req.params.id);
+      logActivity({
+        user: req.user.id,
+        type: "photo_delete",
+        data: { title: p.title || "" },
+      });
       markDeleting(p.id); // 1. ẩn
       const cleaned = await purgePhoto(storage, p.id); // 2. dọn file  3. xóa metadata
       res.json({ ok: true, cleaned }); // cleaned=false -> sẽ được worker dọn lại
@@ -807,11 +852,18 @@ export function createApp(storage) {
       if (cur?.emoji === emoji)
         db.prepare(
           `DELETE FROM reactions WHERE photo_id = ? AND user_id = ?`,
-        ).run(p.id, req.user.id); // bấm lại = bỏ
+        ).run(p.id, req.user.id);
+      // bấm lại = bỏ
       else {
         db.prepare(
           `INSERT OR REPLACE INTO reactions (photo_id, user_id, emoji, created_at) VALUES (?,?,?,?)`,
         ).run(p.id, req.user.id, emoji, now());
+        logActivity({
+          user: req.user.id,
+          type: "react",
+          photoId: p.id,
+          data: { emoji },
+        });
         notify({
           to: p.owner_id,
           actor: req.user.id,
@@ -862,6 +914,12 @@ export function createApp(storage) {
           `SELECT c.id, c.body, c.created_at, u.id uid, u.name, u.avatar_key, u.google_picture FROM comments c JOIN users u ON u.id = c.user_id WHERE c.id = ?`,
         )
         .get(r.lastInsertRowid);
+      logActivity({
+        user: req.user.id,
+        type: "comment",
+        photoId: p.id,
+        data: { body: body.slice(0, 80) },
+      });
       notify({
         to: p.owner_id,
         actor: req.user.id,
@@ -891,13 +949,24 @@ export function createApp(storage) {
   api.get("/notifications", requireAuth, (req, res) => {
     const before = req.query.before ? parseInt(req.query.before, 10) : NaN;
     res.json({
-      ...listNotifications(req.user.id, before),
+      ...listNotifications(req.user.id, before, 30, req.query.kind),
       unread: unreadCount(req.user.id),
+      unreadByKind: unreadByKind(req.user.id),
     });
   });
   api.post("/notifications/read-all", requireAuth, (req, res) => {
-    markAllRead(req.user.id);
-    res.json({ ok: true });
+    markAllRead(req.user.id, req.query.kind);
+    res.json({
+      ok: true,
+      unread: unreadCount(req.user.id),
+      unreadByKind: unreadByKind(req.user.id),
+    });
+  });
+
+  /* ----- Nhật ký hoạt động của mình ----- */
+  api.get("/activity", requireAuth, (req, res) => {
+    const before = req.query.before ? parseInt(req.query.before, 10) : NaN;
+    res.json(listActivity(req.user.id, { before, kind: req.query.kind }));
   });
 
   api.use((_req, res) =>

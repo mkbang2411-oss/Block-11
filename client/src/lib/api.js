@@ -174,9 +174,22 @@ export const api = {
   deleteComment: (id) => req(`/api/comments/${id}`, { method: "DELETE" }),
   originalUrl: (id) => `/api/photos/${id}/original`,
   downloadUrl: (id) => `/api/photos/${id}/download`,
-  notifications: (before) =>
-    req(`/api/notifications${before ? `?before=${before}` : ""}`),
+  notifications: (before, kind) => {
+    const q = new URLSearchParams();
+    if (before) q.set("before", before);
+    if (kind && kind !== "all") q.set("kind", kind);
+    return req(`/api/notifications${q.size ? `?${q}` : ""}`);
+  },
+  activity: (before, kind) => {
+    const q = new URLSearchParams();
+    if (before) q.set("before", before);
+    if (kind && kind !== "all") q.set("kind", kind);
+    return req(`/api/activity${q.size ? `?${q}` : ""}`);
+  },
   unreadCount: () => req("/api/notifications/unread"),
-  readAllNotifications: () =>
-    req("/api/notifications/read-all", { method: "POST" }),
+  readAllNotifications: (kind) =>
+    req(
+      `/api/notifications/read-all${kind && kind !== "all" ? `?kind=${kind}` : ""}`,
+      { method: "POST" },
+    ),
 };

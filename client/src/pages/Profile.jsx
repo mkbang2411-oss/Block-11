@@ -1,6 +1,17 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Camera, Check, LogOut, Mail, Pencil, UserPlus, X } from "lucide-react";
+import {
+  Camera,
+  Check,
+  History,
+  LogOut,
+  Mail,
+  Pencil,
+  Search,
+  UserPlus,
+  Users,
+  X,
+} from "lucide-react";
 import { api } from "../lib/api.js";
 import { centerCrop, cropToBlob, loadImage } from "../lib/img.js";
 import { navigate } from "../lib/router.js";
@@ -8,6 +19,9 @@ import { useApp } from "../store.jsx";
 import { Avatar } from "../components/Nav.jsx";
 import Modal from "../components/Modal.jsx";
 import Cropper from "../components/Cropper.jsx";
+import ActivityLog from "../components/ActivityLog.jsx";
+
+const PAGE = 20; // mỗi lần hiện thêm 20 dòng, tránh danh sách dài vô tận
 
 function AvatarCrop({ src, img, onClose, onDone }) {
   const nat = { w: img.naturalWidth, h: img.naturalHeight };
@@ -45,7 +59,7 @@ function AvatarCrop({ src, img, onClose, onDone }) {
   );
 }
 
-export default function Profile() {
+export default function Profile({ search }) {
   const {
     user,
     setUser,
@@ -60,6 +74,14 @@ export default function Profile() {
   const [busy, setBusy] = useState(false);
   const [crop, setCrop] = useState(null);
   const file = useRef(null);
+  const [tab, setTab] = useState(search?.get("tab") || "friends");
+  const [query, setQuery] = useState("");
+  const [shownN, setShownN] = useState(PAGE);
+  const [outN, setOutN] = useState(PAGE);
+  useEffect(() => {
+    const t = search?.get("tab");
+    if (["friends", "requests", "activity"].includes(t)) setTab(t);
+  }, [search]);
 
   if (user === null)
     return (
@@ -136,17 +158,36 @@ export default function Profile() {
     }
   };
 
+  const q = query.trim().toLowerCase();
+  const matched = q
+    ? friends.friends.filter(
+        (f) =>
+          f.name.toLowerCase().includes(q) || f.email.toLowerCase().includes(q),
+      )
+    : friends.friends;
+  const shown = matched.slice(0, shownN);
+  const TABS = [
+    {
+      id: "friends",
+      label: "Bạn bè",
+      Icon: Users,
+      count: friends.friends.length,
+    },
+    { id: "requests", label: "Kết bạn", Icon: UserPlus },
+    { id: "activity", label: "Nhật ký", Icon: History },
+  ];
+
   return (
     <div className="profile scroll">
       <section className="me-card">
         <div className="me-avatar">
-          <Avatar user={user} size={104} ring />
+          <Avatar user={user} size={84} ring />
           <button
             className="icon-btn on edit-av"
             onClick={() => file.current?.click()}
             aria-label="Đổi avatar"
           >
-            <Camera size={16} />
+            <Camera size={15} />
           </button>
           <input
             ref={file}
@@ -159,7 +200,7 @@ export default function Profile() {
         <div className="me-info">
           {editName === null ? (
             <h2 className="display">
-              {user.name}{" "}
+              <span className="me-name">{user.name}</span>
               <button
                 className="icon-btn sm"
                 onClick={() => setEditName(user.name)}
@@ -196,111 +237,156 @@ export default function Profile() {
           )}
         </div>
         <button
-          className="btn ghost"
+          className="btn ghost sm me-logout"
           onClick={async () => {
             await logout();
             navigate("/");
           }}
         >
-          <LogOut size={16} /> Đăng xuất
+          <LogOut size={15} /> Đăng xuất
         </button>
       </section>
 
-      <section className="block">
-        <h3 className="display">Kết bạn bằng Gmail</h3>
-        <form className="add-friend" onSubmit={addFriend}>
-          <input
-            type="email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="gmail của bạn bè, vd: linh@gmail.com"
-            aria-label="Địa chỉ Gmail của bạn bè"
-          />
-          <button className="btn primary" disabled={busy}>
-            <UserPlus size={16} /> Gửi lời mời
+      <div
+        className="seg sticky"
+        role="tablist"
+        aria-label="Các khu trang cá nhân"
+      >
+        {TABS.map(({ id, label, Icon, count, badge }) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={tab === id}
+            className={`seg-btn ${tab === id ? "on" : ""}`}
+            onClick={() => setTab(id)}
+          >
+            <Icon size={15} /> <span>{label}</span>
+            {count != null && <small className="seg-count">{count}</small>}
+            {badge > 0 && <i className="seg-badge">{badge}</i>}
           </button>
-        </form>
-      </section>
+        ))}
+      </div>
 
-      {friends.incoming.length > 0 && (
+      {tab === "friends" && (
         <section className="block">
-          <h3 className="display">
-            Lời mời gửi đến <small>{friends.incoming.length}</small>
-          </h3>
-          <ul className="people">
-            {friends.incoming.map((r) => (
-              <li key={r.requestId}>
-                <Avatar user={r.from} size={40} />
-                <span>
-                  <b>{r.from.name}</b>
-                  <small>{r.from.email}</small>
-                </span>
+          {friends.friends.length > 0 && (
+            <label className="search">
+              <Search size={16} />
+              <input
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setShownN(PAGE);
+                }}
+                placeholder={`Tìm trong ${friends.friends.length} người bạn…`}
+                aria-label="Tìm bạn bè"
+              />
+              {query && (
                 <button
-                  className="btn primary sm"
-                  onClick={act(
-                    () => api.acceptFriend(r.requestId),
-                    `Đã kết bạn với ${r.from.name} ✦`,
-                  )}
-                >
-                  Chấp nhận
-                </button>
-                <button
+                  type="button"
                   className="icon-btn sm"
-                  onClick={act(() => api.dropRequest(r.requestId))}
-                  aria-label="Từ chối"
+                  onClick={() => {
+                    setQuery("");
+                    setShownN(PAGE);
+                  }}
+                  aria-label="Xóa tìm kiếm"
                 >
-                  <X size={14} />
+                  <X size={13} />
                 </button>
-              </li>
-            ))}
+              )}
+            </label>
+          )}
+          {!friends.friends.length && (
+            <div className="empty inline">
+              <Users size={32} className="muted" />
+              <p className="display big">Chưa có bạn bè</p>
+              <p className="muted">
+                Mời bạn bằng Gmail để cùng xem album của nhau.
+              </p>
+              <button
+                className="btn primary"
+                onClick={() => setTab("requests")}
+              >
+                <UserPlus size={16} /> Kết bạn ngay
+              </button>
+            </div>
+          )}
+          {friends.friends.length > 0 && !matched.length && (
+            <p className="muted pad">Không thấy ai tên “{query}”.</p>
+          )}
+          <ul className="people">
+            <AnimatePresence initial={false}>
+              {shown.map((f) => (
+                <motion.li
+                  key={f.id}
+                  layout="position"
+                  exit={{ opacity: 0, scale: 0.9 }}
+                >
+                  <Avatar user={f} size={40} ring={!!f.latestPhotoAt} />
+                  <span>
+                    <b>{f.name}</b>
+                    <small>{f.email}</small>
+                  </span>
+                  <button
+                    className="btn ghost sm"
+                    onClick={() => navigate(`/album/${f.id}`)}
+                  >
+                    Xem album
+                  </button>
+                  <button
+                    className="icon-btn sm"
+                    onClick={() =>
+                      confirm(`Hủy kết bạn với ${f.name}?`) &&
+                      act(() => api.unfriend(f.id))()
+                    }
+                    aria-label="Hủy kết bạn"
+                  >
+                    <X size={14} />
+                  </button>
+                </motion.li>
+              ))}
+            </AnimatePresence>
           </ul>
+          {matched.length > shown.length && (
+            <button
+              className="btn ghost more"
+              onClick={() => setShownN((n) => n + PAGE)}
+            >
+              Xem thêm {Math.min(PAGE, matched.length - shown.length)} người{" "}
+              <small>(còn {matched.length - shown.length})</small>
+            </button>
+          )}
         </section>
       )}
 
-      <section className="block">
-        <h3 className="display">
-          Bạn bè <small>{friends.friends.length}</small>
-        </h3>
-        {!friends.friends.length && (
-          <p className="muted">
-            Chưa có ai. Nhập Gmail của bạn bè ở trên để bắt đầu.
-          </p>
-        )}
-        <ul className="people">
-          <AnimatePresence initial={false}>
-            {friends.friends.map((f) => (
-              <motion.li key={f.id} layout exit={{ opacity: 0, scale: 0.9 }}>
-                <Avatar user={f} size={40} ring={!!f.latestPhotoAt} />
-                <span>
-                  <b>{f.name}</b>
-                  <small>{f.email}</small>
-                </span>
-                <button
-                  className="btn ghost sm"
-                  onClick={() => navigate(`/album/${f.id}`)}
-                >
-                  Xem album
-                </button>
-                <button
-                  className="icon-btn sm"
-                  onClick={() =>
-                    confirm(`Hủy kết bạn với ${f.name}?`) &&
-                    act(() => api.unfriend(f.id))()
-                  }
-                  aria-label="Hủy kết bạn"
-                >
-                  <X size={14} />
-                </button>
-              </motion.li>
-            ))}
-          </AnimatePresence>
-        </ul>
-        {friends.outgoing.length > 0 && (
-          <>
-            <h4 className="sub">Đang chờ họ chấp nhận</h4>
+      {tab === "requests" && (
+        <div className="stack-blocks">
+          <section className="block card-block">
+            <h3 className="display">Kết bạn bằng Gmail</h3>
+            <form className="add-friend" onSubmit={addFriend}>
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="gmail của bạn bè, vd: linh@gmail.com"
+                aria-label="Địa chỉ Gmail của bạn bè"
+              />
+              <button className="btn primary" disabled={busy}>
+                <UserPlus size={16} /> Gửi lời mời
+              </button>
+            </form>
+          </section>
+
+          <section className="block">
+            <h3 className="display">
+              Đang chờ họ chấp nhận <small>{friends.outgoing.length}</small>
+            </h3>
+            {!friends.outgoing.length && (
+              <p className="muted pad">Bạn chưa có lời mời nào đang chờ.</p>
+            )}
             <ul className="people mute">
-              {friends.outgoing.map((r) => (
+              {friends.outgoing.slice(0, outN).map((r) => (
                 <li key={r.requestId}>
                   <span className="avatar">
                     <Mail size={16} />
@@ -318,9 +404,19 @@ export default function Profile() {
                 </li>
               ))}
             </ul>
-          </>
-        )}
-      </section>
+            {friends.outgoing.length > outN && (
+              <button
+                className="btn ghost more"
+                onClick={() => setOutN((n) => n + PAGE)}
+              >
+                Xem thêm <small>(còn {friends.outgoing.length - outN})</small>
+              </button>
+            )}
+          </section>
+        </div>
+      )}
+
+      {tab === "activity" && <ActivityLog />}
 
       <AnimatePresence>
         {crop && (

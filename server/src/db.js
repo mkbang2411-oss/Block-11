@@ -91,6 +91,17 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, id DESC);
 
+-- Nhật ký hoạt động của chính người dùng (đăng ảnh, sửa, bình luận, kết bạn...). Không FK vào photos để còn giữ dòng "đã xóa ảnh".
+CREATE TABLE IF NOT EXISTS activity_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL,              -- photo_upload | photo_edit | photo_delete | react | comment | friend_request | friend_added | unfriend | avatar | rename
+  photo_id TEXT,
+  data TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_log(user_id, id DESC);
+
 -- Danh sách key cần dọn lại (compensation thất bại, version cũ chờ hết hạn)
 CREATE TABLE IF NOT EXISTS cleanup_queue (
   storage_key TEXT PRIMARY KEY,

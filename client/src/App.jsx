@@ -93,7 +93,7 @@ export default function App() {
                     transition={{ duration: 0.2 }}
                   >
                     {page === "home" && <Home />}
-                    {page === "profile" && <Profile />}
+                    {page === "profile" && <Profile search={route.search} />}
                   </motion.div>
                 </AnimatePresence>
               </div>
