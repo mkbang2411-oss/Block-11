@@ -70,7 +70,10 @@ cp .env.example server/.env   # giữ STORAGE_DRIVER=seaweedfs; điền GOOGLE_C
 
 # Khởi động SeaweedFS (S3 tại :8333) — chọn một:
 docker compose up seaweedfs -d
-#   hoặc: weed server -dir=./data/weed -s3 -s3.config=seaweed/s3.json
+#   hoặc: weed server -dir=./data/weed -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3 -s3.config=seaweed/s3.json
+
+# Tạo bucket MỘT LẦN bằng tài khoản admin (tài khoản app không có quyền này):
+npm run init:bucket
 
 npm run dev:server            # terminal 1
 npm run dev:client            # terminal 2 → http://localhost:5173
@@ -78,7 +81,17 @@ npm run dev:client            # terminal 2 → http://localhost:5173
 
 Trên Windows có thể chạy gộp cả ba tiến trình bằng `npm run dev` (script `dev:weed` gọi `weed.exe` ghi dữ liệu vào `C:/weed-data`; sửa đường dẫn trong `package.json` nếu cần). Server sẽ chờ cổng 8333 sẵn sàng rồi mới khởi động.
 
-Khóa S3 trong `.env.example` (`gallery-dev-key` / `gallery-dev-secret`) phải khớp `seaweed/s3.json`. Bucket `gallery` được tạo tự động ở lần chạy đầu.
+**Phân quyền S3 (`seaweed/s3.json`)** — mỗi tài khoản chỉ có quyền vừa đủ:
+
+| Tài khoản | Khóa mẫu (dev)                         | Quyền                                         | Dùng để                                                                                            |
+| --------- | -------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `app`     | `app-dev-key` / `app-dev-secret`       | `Read`, `Write`, `List` trên bucket `gallery` | Server ứng dụng (đặt trong `server/.env`). Không tạo/xóa được bucket, không đụng được bucket khác. |
+| `viewer`  | `viewer-dev-key` / `viewer-dev-secret` | `Read`, `List` trên bucket `gallery`          | Người chỉ được xem (thầy, người kiểm tra). Không ghi/xóa được.                                     |
+| `admin`   | `admin-dev-key` / `admin-dev-secret`   | `Admin`                                       | Chỉ dùng khi quản trị, ví dụ `npm run init:bucket`. **Không** đặt vào `.env` của app.              |
+
+Khóa trong `server/.env` (`S3_ACCESS_KEY`/`S3_SECRET_KEY`) phải là khóa của tài khoản `app`. Nếu `.env` cũ còn `gallery-dev-key` thì đổi sang `app-dev-key` / `app-dev-secret`. Khi triển khai thật, thay toàn bộ khóa mẫu bằng chuỗi ngẫu nhiên dài và không commit lên git. Server báo `Bucket "gallery" chưa tồn tại` nghĩa là chưa chạy `npm run init:bucket`.
+
+**Cổng quản trị của SeaweedFS:** master `9333`, volume `8080`, filer `8888` **không có đăng nhập**. Vì vậy lệnh chạy ở trên có `-ip.bind=127.0.0.1` để chỉ máy này truy cập được (đã kiểm thử: các cổng 9333/8080/8888/8333 không còn truy cập được qua IP mạng LAN). Muốn máy khác trong mạng xem được S3 thì chỉ mở riêng S3 bằng `-s3.ip.bind=0.0.0.0` và dùng tài khoản `viewer`. Với Docker Compose, chỉ cổng S3 được mở và chỉ ở `127.0.0.1:8333`.
 
 ### Cách C — Chạy bản production bằng Docker
 
@@ -89,7 +102,7 @@ export GOOGLE_CLIENT_ID=xxxxxxxx.apps.googleusercontent.com   # hoặc AUTH_DEV=
 docker compose up --build
 ```
 
-Mở `http://localhost:4000` (server phục vụ luôn bản build của client). Dữ liệu nằm trong volume `seaweed-data` và `app-data`. Dừng: `docker compose down` (thêm `-v` nếu muốn xóa sạch dữ liệu).
+Mở `http://localhost:4000` (server phục vụ luôn bản build của client). Dữ liệu nằm trong volume `seaweed-data` và `app-data`. Service `bucket-init` chạy một lần để tạo bucket bằng tài khoản admin rồi thoát; `app` chỉ khởi động sau khi nó xong. Dừng: `docker compose down` (thêm `-v` nếu muốn xóa sạch dữ liệu).
 
 Không dùng Docker: `npm run build && npm start` rồi mở `http://localhost:4000` (cần đã có `server/.env`).
 
@@ -121,16 +134,18 @@ Không dùng Docker: `npm run build && npm start` rồi mở `http://localhost:4
 
 ### Xử lý sự cố thường gặp
 
-| Triệu chứng                                           | Nguyên nhân / cách xử lý                                                                                                                                                                                                                                      |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `node: bad option: --env-file-if-exists`              | Node cũ. Cập nhật lên Node ≥ 22.9.                                                                                                                                                                                                                            |
-| Giao diện trắng hoặc `ECONNREFUSED` ở terminal client | Server (cổng 4000) chưa chạy. Mở terminal 1 chạy `npm run dev:server` trước.                                                                                                                                                                                  |
-| Đăng nhập không có nút Google                         | Chưa đặt `GOOGLE_CLIENT_ID`. Đặt nó hoặc bật `AUTH_DEV=1`, rồi khởi động lại server.                                                                                                                                                                          |
-| Đăng nhập Google báo lỗi origin                       | Thêm đúng `http://localhost:5173` (dev) hoặc `:4000` (production) vào _Authorized JavaScript origins_.                                                                                                                                                        |
-| Upload lỗi `internal_error` / không kết nối được S3   | SeaweedFS chưa chạy ở `:8333`, hoặc khóa trong `.env` không khớp `seaweed/s3.json`. Hoặc chuyển sang `STORAGE_DRIVER=local`.                                                                                                                                  |
-| Cổng 4000/5173/8333 đã bị chiếm                       | Đổi `PORT` trong `.env` (cổng client đổi trong `client/vite.config.js`, và nhớ đổi địa chỉ proxy tương ứng).                                                                                                                                                  |
-| Nền chỉ có màu xanh navy tối, không thấy gradient tím | Máy đang bật "giảm chuyển động" (Windows: _Accessibility → Visual effects → Animation effects_). Bản hiện tại đã giữ gradient đứng yên ở đoạn có màu tím; bật lại animation để nền chuyển động. Khi giảm chuyển động, trang album đổi trang ngay thay vì lật. |
-| Muốn xóa sạch dữ liệu dev                             | Dừng server, xóa `server/data/` (DB + ảnh khi dùng `local`). Với SeaweedFS xóa thêm thư mục dữ liệu `weed` hoặc `docker compose down -v`.                                                                                                                     |
+| Triệu chứng                                                                                             | Nguyên nhân / cách xử lý                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `node: bad option: --env-file-if-exists`                                                                | Node cũ. Cập nhật lên Node ≥ 22.9.                                                                                                                                                                                                                                                                                                                                                      |
+| Giao diện trắng hoặc `[vite] http proxy error ... ECONNREFUSED` ở terminal client                       | Vite luôn chuyển `/api` và `/media` sang **cổng 4000**. Nhìn dòng `[server] http://localhost:XXXX` trong log: nếu **không phải 4000** (ví dụ 3000) thì server đang chạy sai cổng. Đặt `PORT=4000` trong `server/.env`, hoặc xóa biến môi trường `PORT` của hệ thống (Windows: `echo %PORT%`), rồi chạy lại. Nếu chưa thấy dòng `[server]` thì server chưa chạy hoặc đang chờ SeaweedFS. |
+| Log `weed` hiện `raft.Server: Not current leader`, `WaitUntilConnected still waiting` lúc mới khởi động | Bình thường: SeaweedFS đang bầu leader, vài giây đến vài chục giây sau sẽ có dòng `becomes leader`. Chỉ lo khi lặp mãi không dừng.                                                                                                                                                                                                                                                      |
+| Đăng nhập không có nút Google                                                                           | Chưa đặt `GOOGLE_CLIENT_ID`. Đặt nó hoặc bật `AUTH_DEV=1`, rồi khởi động lại server.                                                                                                                                                                                                                                                                                                    |
+| Đăng nhập Google báo lỗi origin                                                                         | Thêm đúng `http://localhost:5173` (dev) hoặc `:4000` (production) vào _Authorized JavaScript origins_.                                                                                                                                                                                                                                                                                  |
+| Upload lỗi `internal_error` / không kết nối được S3                                                     | SeaweedFS chưa chạy ở `:8333`, hoặc khóa trong `.env` không phải khóa tài khoản `app` trong `seaweed/s3.json` (báo `AccessDenied`). Hoặc chuyển sang `STORAGE_DRIVER=local`.                                                                                                                                                                                                            |
+| Server thoát với `Bucket "gallery" chưa tồn tại`                                                        | Chạy `npm run init:bucket` một lần (dùng tài khoản admin).                                                                                                                                                                                                                                                                                                                              |
+| Cổng 4000/5173/8333 đã bị chiếm                                                                         | Đổi `PORT` trong `.env` (cổng client đổi trong `client/vite.config.js`, và nhớ đổi địa chỉ proxy tương ứng).                                                                                                                                                                                                                                                                            |
+| Nền chỉ có màu xanh navy tối, không thấy gradient tím                                                   | Máy đang bật "giảm chuyển động" (Windows: _Accessibility → Visual effects → Animation effects_). Bản hiện tại đã giữ gradient đứng yên ở đoạn có màu tím; bật lại animation để nền chuyển động. Khi giảm chuyển động, trang album đổi trang ngay thay vì lật.                                                                                                                           |
+| Muốn xóa sạch dữ liệu dev                                                                               | Dừng server, xóa `server/data/` (DB + ảnh khi dùng `local`). Với SeaweedFS xóa thêm thư mục dữ liệu `weed` hoặc `docker compose down -v`.                                                                                                                                                                                                                                               |
 
 ## Các trang & hành vi chính
 
@@ -192,7 +207,8 @@ Mọi request ghi cần header `X-Requested-With: gallery` (chống CSRF, cookie
 npm run testdata                  # sinh test-data/: JPEG, PNG, EXIF orientation 6 + GPS giả (10.0, 106.0),
                                   # file text đổi đuôi, ảnh thiếu byte, ảnh 49 MP (nhỏ về dung lượng), ảnh > 10 MiB, ảnh 16:9
 npm test                          # 12 ca e2e: upload, trộn file giả, 413, EXIF, lỗi DB sau khi ghi file, chỉnh sửa/version/khôi phục, xóa, bạn bè...
-TEST_STORAGE=seaweedfs S3_ENDPOINT=http://localhost:8333 S3_ACCESS_KEY=gallery-dev-key S3_SECRET_KEY=gallery-dev-secret npm test   # cùng bộ test trên SeaweedFS thật
+npm run init:bucket               # (một lần) tạo bucket bằng tài khoản admin
+TEST_STORAGE=seaweedfs S3_ENDPOINT=http://localhost:8333 S3_ACCESS_KEY=app-dev-key S3_SECRET_KEY=app-dev-secret npm test   # cùng bộ test trên SeaweedFS thật, bằng tài khoản app
 npm --prefix client run smoke     # mount toàn bộ UI bằng jsdom, đi qua 4 trang + viewer + editor
 ```
 

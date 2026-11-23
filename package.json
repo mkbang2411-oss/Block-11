@@ -8,9 +8,10 @@
     "build": "npm --prefix client run build",
     "start": "npm --prefix server start",
     "test": "npm --prefix server test",
+    "init:bucket": "npm --prefix server run init:bucket",
     "testdata": "node server/scripts/make-test-data.mjs test-data",
     "dev": "concurrently -n weed,server,client -c yellow,magenta,cyan \"npm run dev:weed\" \"npm run dev:server:wait\" \"npm run dev:client\"",
-    "dev:weed": "weed.exe server -dir=C:/weed-data -s3 -s3.config=seaweed/s3.json",
+    "dev:weed": "weed.exe server -dir=C:/weed-data -ip=127.0.0.1 -ip.bind=127.0.0.1 -s3 -s3.config=seaweed/s3.json",
     "dev:server:wait": "wait-on tcp:127.0.0.1:8333 && npm run dev:server"
   },
   "devDependencies": {

@@ -1,9 +1,25 @@
 {
   "identities": [
     {
-      "name": "gallery",
-      "credentials": [{ "accessKey": "gallery-dev-key", "secretKey": "gallery-dev-secret" }],
-      "actions": ["Admin", "Read", "Write", "List", "Tagging"]
+      "name": "app",
+      "credentials": [
+        { "accessKey": "app-dev-key", "secretKey": "app-dev-secret" }
+      ],
+      "actions": ["Read:gallery", "Write:gallery", "List:gallery"]
+    },
+    {
+      "name": "viewer",
+      "credentials": [
+        { "accessKey": "viewer-dev-key", "secretKey": "viewer-dev-secret" }
+      ],
+      "actions": ["Read:gallery", "List:gallery"]
+    },
+    {
+      "name": "admin",
+      "credentials": [
+        { "accessKey": "admin-dev-key", "secretKey": "admin-dev-secret" }
+      ],
+      "actions": ["Admin"]
     }
   ]
 }
