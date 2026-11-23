@@ -140,6 +140,17 @@ export function createApp(storage) {
     next();
   });
 
+  // Không cần đăng nhập, không lộ thông tin nội bộ: chỉ báo kho ảnh sống hay không.
+  api.get("/health", async (_req, res) => {
+    try {
+      await storage.ping();
+      res.json({ ok: true, storage: "up" });
+    } catch (e) {
+      console.error("[health] kho ảnh lỗi:", e.message);
+      res.status(503).json({ ok: false, storage: "down" });
+    }
+  });
+
   api.get("/config", (_req, res) =>
     res.json({
       googleClientId: config.googleClientId || null,

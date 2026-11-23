@@ -41,6 +41,12 @@ export class S3Storage {
       }
     }
   }
+  // Kiểm tra nhanh kho còn sống không (dùng cho /api/health). Quá 3 giây coi như lỗi.
+  async ping() {
+    await this.client.send(new HeadBucketCommand({ Bucket: this.bucket }), {
+      abortSignal: AbortSignal.timeout(3000),
+    });
+  }
   async put(key, buf, contentType = "image/webp") {
     assertValidKey(key);
     await this.client.send(
